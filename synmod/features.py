@@ -105,7 +105,7 @@ class BinaryFeature(TemporalFeature):
     """Binary feature"""
     def __init__(self, name, seed_seq, sequence_length, aggregation_fn_cls, **kwargs):
         super().__init__(name, seed_seq, sequence_length, aggregation_fn_cls)
-        generator_class = self._rng.choice([BernoulliProcess, MarkovChain])
+        generator_class = self._rng.choice([MarkovChain])
         kwargs["n_states"] = 2
         self.generator = generator_class(self._rng, BINARY, self.window, **kwargs)
 
