@@ -195,11 +195,13 @@ class MarkovChain(Generator):
         for state in states:
             state.gen_distributions()
 
-    def sample(self, sequence_length):
+    def sample(self, sequence_length, **kwargs):
         cur_state = self._rng.choice(self._out_window_states)  # initial state
         sequence = np.empty(sequence_length)
         value = self._init_value  # TODO: what if value is re-initialized for every sequence sampled? (trends)
         left, right = self._window
+        mask = kwargs['mask']
+
         for timestep in range(sequence_length):
             if not self._window_independent:
                 # Reset initial state in/out of window
@@ -215,7 +217,47 @@ class MarkovChain(Generator):
             sequence[timestep] = value
             # Set next state
             cur_state = cur_state.transition()
+
+        #Do masking of sequence
+        sequence = [sequence[x] if mask[x]==1 else None for x in range(len(sequence))]
         return sequence
+
+
+    def sample_single_timepoint(self, timepoint, prev_time_feat_vals, **kwargs):
+        if timepoint == 0:
+            cur_state = self._rng.choice(self._out_window_states)  # default state
+        else:
+            cur_state = cur_state._chain._rng.choice(self._states, p=self._p)
+        value = self._init_value  # TODO: what if value is re-initialized for every sequence sampled? (trends)
+        left, right = self._window
+        mask = kwargs['mask']
+
+        if not self._window_independent:
+            # Reset initial state in/out of window
+            if timepoint >= left:
+                cur_state = self._rng.choice(self._in_window_states)
+            elif timepoint <= right:
+                cur_state = self._rng.choice(self._out_window_states)
+
+        #Update cur_state parameters based on previous values
+        cur_state.
+
+        # Get value from state
+        if self._trends:
+            value += cur_state.sample()
+        else:
+            value = cur_state.sample()
+
+        #Reset the current state to its original values, so that we don't unintentionally propagate changes down the chain
+        cur_state.
+
+        # Set next state
+        cur_state = cur_state.transition()
+
+        #Do masking of sequence
+        value = value if mask[x]==1 else None
+        return value
+
 
     def graph(self):
         graph = graphviz.Digraph()

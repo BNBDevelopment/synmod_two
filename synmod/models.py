@@ -105,9 +105,9 @@ def get_model(args, features, instances):
 def get_window(args):
     """Randomly select appropriate window for model to operate in"""
     # TODO: allow soft-edged windows (smooth decay of influence of feature values outside window)
-    right = args.sequence_length - 1  # Anchor half the windows on the right
+    right = args.expected_sequence_length - 1  # Anchor half the windows on the right
     if args.rng.uniform() < 0.5:
-        right = args.rng.choice(range(args.sequence_length // 2, args.sequence_length))
+        right = args.rng.choice(range(args.expected_sequence_length // 2, args.expected_sequence_length))
     left = args.rng.choice(range(0, right))
     return (left, right)
 

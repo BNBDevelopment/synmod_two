@@ -144,7 +144,7 @@ def get_feature(args, name):
             feature_class = args.rng.choice([CategoricalFeature, NumericFeature], p=[0.25, 0.75])
             if feature_class == CategoricalFeature:
                 kwargs["n_states"] = args.rng.integers(4, 5, endpoint=True)
-        feature = feature_class(name, seed_seq, args.sequence_length, aggregation_fn_cls, **kwargs)
+        feature = feature_class(name, seed_seq, args.expected_sequence_length, aggregation_fn_cls, **kwargs)
         args.logger.info(f"Generating feature class {feature_class.__name__} with window {feature.window} and"
                          f" aggregation_fn {aggregation_fn_cls.__name__}")
         return feature

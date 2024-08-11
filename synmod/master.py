@@ -54,7 +54,7 @@ def main(strargs=None):
                         "features types", nargs=3, type=float, default=[0.25, 0.25, 0.50])
     # Temporal synthesis arguments
     temporal = parser.add_argument_group("Temporal synthesis parameters")
-    temporal.add_argument("-sequence_length", help="Length of regularly sampled sequence",
+    temporal.add_argument("-expected_sequence_length", help="Expected length of regularly sampled sequence",
                           type=int)
     # TODO: Make sequences dependent on windows by default to avoid unpredictability
     temporal.add_argument("-sequences_independent_of_windows", help="If enabled, Markov chain sequence data doesn't depend on timesteps being"
@@ -64,14 +64,20 @@ def main(strargs=None):
                           choices=[constants.CLASSIFIER, constants.REGRESSOR], default=constants.REGRESSOR)
     temporal.add_argument("-standardize_features", help="add feature standardization (0 mean, 1 SD) to model",
                           type=strtobool)
+    temporal.add_argument("-observation_probability", help="The probability of observing a given feature value at any time point. Can be "
+                                                           "either a single probability applied to all features (i.e. '0.1') or a "
+                                                           "comma-seperated list of probabilities (i.e. '0.1,0.4,0.9) corresponding "
+                                                           "to each feature. Default is 1 applied to all  features.",
+                          type=str, default="1.0")
+
     args = parser.parse_args(args=strargs)
     if args.synthesis_type == constants.TEMPORAL:
-        if args.sequence_length is None:
+        if args.expected_sequence_length is None:
             parser.error(f"-sequence_length required for -synthesis_type {constants.TEMPORAL}")
-        elif args.sequence_length <= 1:
+        elif args.expected_sequence_length <= 1:
             parser.error(f"-sequence_length must be greater than 1 for synthesis_type {constants.TEMPORAL}")
     else:
-        args.sequence_length = 1
+        args.expected_sequence_length = 1
     return pipeline(args)
 
 
@@ -105,16 +111,29 @@ def generate_features(args):
             instances = np.array([feature.sample() for _ in range(constants.VARIANCE_TEST_COUNT)])
             aggregated = instances
         else:
-            instances = np.array([feature.sample(args.sequence_length) for _ in range(constants.VARIANCE_TEST_COUNT)])
+            instances = np.array([feature.sample(args.expected_sequence_length) for _ in range(constants.VARIANCE_TEST_COUNT)])
             left, right = feature.window
             aggregated = feature.aggregation_fn.operate(instances[:, left: right + 1])
         return np.var(aggregated) > 1e-10
+
+    #Defining observation probabilities
+    try:
+        obs_prob = args.observation_probability.split(",")
+        if len(obs_prob) == args.num_features:
+            obs_prob = np.array([float(x) for x in obs_prob])
+        elif len(obs_prob) == 1:
+            obs_prob = np.array([float(args.observation_probability) for x in range(args.num_features)])
+        else:
+            raise Exception(f"Argument 'observation_probability' is not valid. Number of probabilities is {len(obs_prob)} and should be either 1 or {args.num_features}.")
+    except:
+        raise Exception(f"Argument 'observation_probability' is not numeric.")
 
     # TODO: allow across-feature interactions
     features = [None] * args.num_features
     fid = 0
     while fid < args.num_features:
         feature = F.get_feature(args, str(fid))
+        feature.observation_probability = obs_prob[fid]
         if not check_feature_variance(args, feature):
             # Reject feature if its raw/aggregated values have low variance
             args.logger.info(f"Rejecting feature {feature.__class__} due to low variance")
@@ -124,6 +143,14 @@ def generate_features(args):
     return features
 
 
+def sample_with_dependency(features, cur_seq_len, **kwargs):
+    for timepoint in range(cur_seq_len):
+        prev_time_feat_vals = []
+        for feature in features:
+                f_t_val = feature.sample_single_timepoint(timepoint, prev_time_feat_vals, **kwargs)
+                prev_time_feat_vals.append(f_t_val)
+
+
 def generate_instances(args, features):
     """Generate instances"""
     if args.synthesis_type == constants.TABULAR:
@@ -131,9 +158,18 @@ def generate_instances(args, features):
         for sid in range(args.num_instances):
             instances[sid] = [feature.sample() for feature in features]
     else:
-        instances = np.empty((args.num_instances, args.num_features, args.sequence_length))
-        for sid in range(args.num_instances):
-            instances[sid] = [feature.sample(args.sequence_length) for feature in features]
+        seq_lengths = np.random.geometric(p=(1/args.expected_sequence_length), size=args.num_instances)
+        instances = []
+        for instance_id in range(args.num_instances):
+            cur_seq_len = seq_lengths[instance_id]
+            mask_arg = {"mask":np.random.choice([0,1], size=cur_seq_len, p=[1-features[0].observation_probability, features[0].observation_probability])}
+
+            if args.feature_interactions == 0:
+                instance = [feature.sample(cur_seq_len, **mask_arg) for feature in features]
+            else:
+                instance = sample_with_dependency()
+
+            instances.append(instance)
     return instances
 
 
@@ -173,7 +209,7 @@ def ground_truth_estimation(args, features, instances, model):
             left, right = feature.window
             # TODO: Confirm these fields are correct when sequences have the same in- and out-distributions
             feature.window_ordering_important = feature.aggregation_fn.ordering_important
-            feature.ordering_important = (right - left + 1 < args.sequence_length) or feature.window_ordering_important
+            feature.ordering_important = (right - left + 1 < args.expected_sequence_length) or feature.window_ordering_important
     args.logger.info("End estimating ground truth effects")
 
 
@@ -194,7 +230,7 @@ def write_summary(args, features, model):
     config = dict(synthesis_type=args.synthesis_type,
                   num_instances=args.num_instances,
                   num_features=args.num_features,
-                  sequence_length=args.sequence_length,
+                  sequence_length=args.expected_sequence_length,
                   model_type=model.__class__.__name__,
                   sequences_independent_of_windows=args.window_independent,
                   fraction_relevant_features=args.fraction_relevant_features,
