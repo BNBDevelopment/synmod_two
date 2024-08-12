@@ -82,6 +82,10 @@ class TemporalFeature(Feature):
         """Sample sequence from generator"""
         return self.generator.sample(*args, **kwargs)
 
+    def sample_single_MC_timepoint(self, *args, **kwargs):
+        """Sample sequence from generator"""
+        return self.generator.sample_single_timepoint(*args, **kwargs)
+
     def summary(self):
         summary = super().summary()
         assert self.generator is not None
@@ -124,6 +128,7 @@ class NumericFeature(TemporalFeature):
     def __init__(self, name, seed_seq, sequence_length, aggregation_fn_cls, **kwargs):
         super().__init__(name, seed_seq, sequence_length, aggregation_fn_cls)
         generator_class = self._rng.choice([MarkovChain])
+        kwargs["n_states"] = 1
         self.generator = generator_class(self._rng, NUMERIC, self.window, **kwargs)
 
 
@@ -144,6 +149,7 @@ def get_feature(args, name):
             feature_class = args.rng.choice([CategoricalFeature, NumericFeature], p=[0.25, 0.75])
             if feature_class == CategoricalFeature:
                 kwargs["n_states"] = args.rng.integers(4, 5, endpoint=True)
+        kwargs['categorical_stability_scaler'] = args.categorical_stability_scaler
         feature = feature_class(name, seed_seq, args.expected_sequence_length, aggregation_fn_cls, **kwargs)
         args.logger.info(f"Generating feature class {feature_class.__name__} with window {feature.window} and"
                          f" aggregation_fn {aggregation_fn_cls.__name__}")
