@@ -135,16 +135,25 @@ class MarkovChain(Generator):
     class State():
         """Markov chain state"""
         # pylint: disable = protected-access, too-many-instance-attributes
-        def __init__(self, chain, index, state_type):
+        def __init__(self, chain, index, state_type, **kwargs):
             self._chain = chain  # Parent Markov chain
             self._index = index  # state identifier
             self._state_type = state_type  # state type - in-window vs. out-window
             self.name = f"{self._state_type}-{self._index}"
             self._p = None  # Transition probabilities from state
             self._states = None  # States to transition to
+            self.mean = None #Mean value of normal distribution from which values are sampled
+            self.sd = None #Std Dev of normal distribution from which values are sampled
             self.sample = None  # Function to sample from state distribution
             if self._chain._feature_type == NUMERIC:
                 self._summary_stats = SummaryStats(None, None)
+            self. categorical_stability_scaler = kwargs['categorical_stability_scaler']
+
+        def continuous_sample_fn(self):
+            return lambda: self._chain._rng.normal(self.mean, self.sd)
+
+        def discrete_sample_fn(self):
+            return lambda: self._index
 
         def gen_distributions(self):
             """Generate state transition and sampling distributions"""
@@ -152,7 +161,13 @@ class MarkovChain(Generator):
             rng = self._chain._rng
             self._states = self._chain._in_window_states if self._state_type == IN_WINDOW else self._chain._out_window_states
             n_states = len(self._states)
-            self._p = rng.uniform(size=n_states)
+
+            #Updating probabilities such that categorical values are more likely to maintain the same value over time
+            probs = rng.uniform(size=n_states)
+            probs = [x if x != self._index else x*self.categorical_stability_scaler for x in probs]
+            probs = [z/sum(probs) for z in probs]
+            self._p = None
+
             if feature_type == NUMERIC:
                 mean = rng.uniform(0.1)
                 sd = rng.uniform(0.1) * 0.05
@@ -165,10 +180,12 @@ class MarkovChain(Generator):
                         mean = 0  # Stay constant
                     else:
                         mean = rng.uniform(-1, 1)  # Random
+                self.mean = mean
+                self.sd = sd
                 self._summary_stats = SummaryStats(mean, sd)
-                self.sample = lambda: rng.normal(mean, sd)
+                self.sample = self.continuous_sample_fn()
             else:  # binary/categorical variable
-                self.sample = lambda: self._index
+                self.sample = self.discrete_sample_fn()
             self._p /= self._p.sum()  # normalize transition probabilities
 
         def transition(self):
@@ -186,11 +203,11 @@ class MarkovChain(Generator):
             n_states = min(n_states, 4)  # Separate chains in/out of window, so avoid too many trends within window
         self._init_value = self._rng.uniform(-1, 1)  # Initial value of Markov chain, used for trends
         # Select states inside and outside window
-        self._in_window_states = [self.State(self, index, IN_WINDOW) for index in range(n_states)]
+        self._in_window_states = [self.State(self, index, IN_WINDOW, **kwargs) for index in range(n_states)]
         self._out_window_states = self._in_window_states
         if not self._window_independent:
             # Create separate chain in/out of window
-            self._out_window_states = [self.State(self, index, OUT_WINDOW) for index in range(n_states)]
+            self._out_window_states = [self.State(self, index, OUT_WINDOW, **kwargs) for index in range(n_states)]
         states = self._in_window_states if self._window_independent else self._in_window_states + self._out_window_states
         for state in states:
             state.gen_distributions()
@@ -200,7 +217,6 @@ class MarkovChain(Generator):
         sequence = np.empty(sequence_length)
         value = self._init_value  # TODO: what if value is re-initialized for every sequence sampled? (trends)
         left, right = self._window
-        mask = kwargs['mask']
 
         for timestep in range(sequence_length):
             if not self._window_independent:
@@ -219,18 +235,17 @@ class MarkovChain(Generator):
             cur_state = cur_state.transition()
 
         #Do masking of sequence
-        sequence = [sequence[x] if mask[x]==1 else None for x in range(len(sequence))]
+        if 'mask' in kwargs.keys():
+            mask = kwargs['mask']
+            sequence = [sequence[x] if mask[x]==1 else None for x in range(len(sequence))]
         return sequence
 
 
-    def sample_single_timepoint(self, timepoint, prev_time_feat_vals, **kwargs):
-        if timepoint == 0:
+    def sample_single_timepoint(self, args, cur_state, timepoint, prev_time_feat_vals, feature_id, dependencies, **kwargs):
+        if cur_state is None:
             cur_state = self._rng.choice(self._out_window_states)  # default state
-        else:
-            cur_state = cur_state._chain._rng.choice(self._states, p=self._p)
-        value = self._init_value  # TODO: what if value is re-initialized for every sequence sampled? (trends)
+        #value = self._init_value  # TODO: what if value is re-initialized for every sequence sampled? (trends)
         left, right = self._window
-        mask = kwargs['mask']
 
         if not self._window_independent:
             # Reset initial state in/out of window
@@ -239,24 +254,33 @@ class MarkovChain(Generator):
             elif timepoint <= right:
                 cur_state = self._rng.choice(self._out_window_states)
 
-        #Update cur_state parameters based on previous values
-        cur_state.
+        if self._feature_type == NUMERIC:
+            old_mean = cur_state.mean
+            #Update cur_state parameters based on previous values
+            for d in dependencies:
+                mean_update = d[4](d[1] * prev_time_feat_vals[d[0],int(d[2]):int(d[3])])
+                mean_update = 0 if np.isnan(mean_update) else mean_update
+                cur_state.mean += mean_update
 
         # Get value from state
-        if self._trends:
-            value += cur_state.sample()
+        if self._trends and timepoint >= 1:
+            prev_val = prev_time_feat_vals[feature_id, timepoint-1]
+            prev_val = 0 if np.isnan(prev_val) else prev_val
+            value = prev_val + cur_state.sample()
         else:
             value = cur_state.sample()
 
         #Reset the current state to its original values, so that we don't unintentionally propagate changes down the chain
-        cur_state.
+        if self._feature_type == NUMERIC:
+            dep_scale_on_prev_time = 0.001
+            #cur_state.mean = old_mean + (dep_scale_on_prev_time * value)
+            denom = len(dependencies) if len(dependencies) > 0 else 1
+            cur_state.mean = dep_scale_on_prev_time / denom
 
         # Set next state
         cur_state = cur_state.transition()
 
-        #Do masking of sequence
-        value = value if mask[x]==1 else None
-        return value
+        return value, cur_state
 
 
     def graph(self):

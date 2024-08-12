@@ -69,6 +69,19 @@ def main(strargs=None):
                                                            "comma-seperated list of probabilities (i.e. '0.1,0.4,0.9) corresponding "
                                                            "to each feature. Default is 1 applied to all  features.",
                           type=str, default="1.0")
+    temporal.add_argument("-feature_interactions", help="Number of feature interactions to include",
+                          type=int)
+    temporal.add_argument("-max_interactions_per_feature", help="Maximum number of other features any one feature can interact with",
+                          type=int)
+    temporal.add_argument("-feature_interaction_probability", help="The probability of one feature having an interaction with any other feature.",
+                          type=float)
+    temporal.add_argument("-interact_window_range",
+                          help="Defines which time points before the current time point can be used for dependencies between features.",
+                          type=str)
+    temporal.add_argument("-interact_window_size",
+                          help="The size of the interaction window (how many of the previous time points for feature A can influence the value of feature B)",
+                          type=int)
+    temporal.add_argument("-categorical_stability_scaler", help="Scaling factor for how much more likely a categorical variable is to keep its value over time point", type=float)
 
     args = parser.parse_args(args=strargs)
     if args.synthesis_type == constants.TEMPORAL:
@@ -134,6 +147,25 @@ def generate_features(args):
     while fid < args.num_features:
         feature = F.get_feature(args, str(fid))
         feature.observation_probability = obs_prob[fid]
+
+        possible_feature_to_depend_on = np.concatenate((np.random.choice([x for x in range(args.num_features) if x != fid], args.max_interactions_per_feature), [None]))
+        probs = [args.feature_interaction_probability/(len(possible_feature_to_depend_on)-1) for x in possible_feature_to_depend_on]
+        probs[-1] = 1-args.feature_interaction_probability
+        f_depend_ids = [x for x in np.random.choice(possible_feature_to_depend_on, p=probs, size=args.max_interactions_per_feature) if x is not None]
+
+        dependency_window = [int(x) for x in args.interact_window_range.split(",")]
+        w_start = max(dependency_window)
+        w_end = min(dependency_window)
+        window_possible = list(range(-w_start, -(w_end+1)))
+
+        dependencies = []
+        for d in f_depend_ids:
+            d_scale_factor = np.random.uniform(-1, 1)
+            window_start = np.random.choice(window_possible, size=1)
+            window_end = min(0, window_start + args.interact_window_size)
+            dependencies.append((d, d_scale_factor, window_start, window_end, np.mean))
+        feature.dependencies = dependencies
+
         if not check_feature_variance(args, feature):
             # Reject feature if its raw/aggregated values have low variance
             args.logger.info(f"Rejecting feature {feature.__class__} due to low variance")
@@ -143,12 +175,19 @@ def generate_features(args):
     return features
 
 
-def sample_with_dependency(features, cur_seq_len, **kwargs):
-    for timepoint in range(cur_seq_len):
-        prev_time_feat_vals = []
-        for feature in features:
-                f_t_val = feature.sample_single_timepoint(timepoint, prev_time_feat_vals, **kwargs)
-                prev_time_feat_vals.append(f_t_val)
+def sample_with_dependency(args, features, cur_seq_len, **kwargs):
+    prev_time_feat_vals = np.zeros((len(features), cur_seq_len))
+
+
+    for feature_id, feature in enumerate(features):
+        cur_state = None
+        for timepoint in range(cur_seq_len):
+
+            mask = np.random.choice([0, 1], size=1, p=[1 - features[feature_id].observation_probability, features[feature_id].observation_probability])
+            f_t_val, cur_state = feature.sample_single_MC_timepoint(args, cur_state, timepoint, prev_time_feat_vals, feature_id, feature.dependencies, **kwargs)
+            prev_time_feat_vals[feature_id, timepoint] = f_t_val if mask.item() == 1 else np.nan
+
+    return prev_time_feat_vals
 
 
 def generate_instances(args, features):
@@ -159,18 +198,18 @@ def generate_instances(args, features):
             instances[sid] = [feature.sample() for feature in features]
     else:
         seq_lengths = np.random.geometric(p=(1/args.expected_sequence_length), size=args.num_instances)
+        max_len = np.max(seq_lengths).item()
         instances = []
         for instance_id in range(args.num_instances):
             cur_seq_len = seq_lengths[instance_id]
-            mask_arg = {"mask":np.random.choice([0,1], size=cur_seq_len, p=[1-features[0].observation_probability, features[0].observation_probability])}
 
             if args.feature_interactions == 0:
-                instance = [feature.sample(cur_seq_len, **mask_arg) for feature in features]
+                instance = [feature.sample(cur_seq_len) for feature in features]
             else:
-                instance = sample_with_dependency()
-
+                instance = sample_with_dependency(args, features, cur_seq_len)
+            instance = np.pad(instance, pad_width=((0,0),(0,max_len-instance.shape[-1])), constant_values=np.nan)
             instances.append(instance)
-    return instances
+    return np.stack(instances)
 
 
 def generate_labels(model, instances):
