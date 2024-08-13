@@ -125,9 +125,9 @@ def generate_features(args):
             aggregated = instances
         else:
             instances = np.array([feature.sample(args.expected_sequence_length) for _ in range(constants.VARIANCE_TEST_COUNT)])
-            left, right = feature.window
-            aggregated = feature.aggregation_fn.operate(instances[:, left: right + 1])
-        return np.var(aggregated) > 1e-10
+            #left, right = feature.window
+            aggregated = feature.predict(instances, feature.window)
+        return np.all(np.var(aggregated, axis=-1) > 1e-10)
 
     #Defining observation probabilities
     try:

@@ -94,14 +94,26 @@ class TemporalFeature(Feature):
                             generator=self.generator.summary()))
         return summary
 
+    def predict(self, instances, window):
+        preds = np.zeros_like(instances)
+        for time in range(instances.shape[-1]):
+            if time+window[1] >= 0:
+                w_start = 0
+                w_end = max(time + window[1], 0)
+                if time+window[0] >= 0 and time+window[1] >= 0:
+                    w_start = max(time+window[0], 0)
+                preds[:,time] = self.aggregation_fn.operate(instances[:, w_start: w_end + 1]).flatten()
+        return preds
+
+
     def get_window(self, sequence_length):
         """Randomly select a window for the feature where the model should operate in"""
         assert sequence_length is not None  # TODO: handle variable-length sequence case
         if sequence_length == 1:
             return (1, 1)  # tabular features
         # TODO: allow soft-edged windows (smooth decay of influence of feature values outside window)
-        right = self._rng.choice(range(sequence_length // 2, sequence_length))
-        left = self._rng.choice(range(0, right))
+        left = -self._rng.choice(range(sequence_length))
+        right = self._rng.choice(range(left, 0))
         return (left, right)
 
 

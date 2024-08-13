@@ -64,10 +64,12 @@ class AggregationFunction(ABC):
         self._window = window
         self._sequence_operator = None
         self.ordering_important = False
+        self.weights = None
 
     def operate(self, sequences):
         """Operate on sequences for given feature"""
-        return self._nonlinearity_operator(np.apply_along_axis(self._sequence_operator, 1, sequences))  # sequences: instances X timesteps
+        weights_to_use = self.weights if self.weights is None else self.weights[:sequences.shape[1]]
+        return self._nonlinearity_operator(np.apply_along_axis(self._sequence_operator, 1, sequences, weights_to_use))  # sequences: instances X timesteps
 
 
 class Max(AggregationFunction):
@@ -83,14 +85,16 @@ class Average(AggregationFunction):
         super().__init__(rng, window)
         self._sequence_operator = np.average
 
+def apply_weights(seq, *weights):
+    return seq.dot(weights[0])
 
 class MonotonicWeightedAverage(AggregationFunction):
     """Computes weighted average of inputs with monotically increasing weights"""
     def __init__(self, rng, window):
         super().__init__(rng, window)
         window_size = window[1] - window[0] + 1
-        weights = np.linspace(1, 2, window_size)
-        self._sequence_operator = lambda seq: seq.dot(weights)
+        self.weights = np.linspace(1, 2, window_size)
+        self._sequence_operator = apply_weights#lambda seq: seq.dot(self.weights)
         self.ordering_important = window_size > 1
 
 
@@ -99,9 +103,9 @@ class RandomWeightedAverage(AggregationFunction):
     def __init__(self, rng, window):
         super().__init__(rng, window)
         window_size = window[1] - window[0] + 1
-        weights = np.linspace(1, 2, window_size)
-        rng.shuffle(weights)
-        self._sequence_operator = lambda seq: seq.dot(weights)
+        self.weights = np.linspace(1, 2, window_size)
+        rng.shuffle(self.weights)
+        self._sequence_operator = apply_weights#lambda seq: seq.dot(self.weights)
         self.ordering_important = window_size > 1
 
 

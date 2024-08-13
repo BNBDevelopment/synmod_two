@@ -164,9 +164,7 @@ class MarkovChain(Generator):
 
             #Updating probabilities such that categorical values are more likely to maintain the same value over time
             probs = rng.uniform(size=n_states)
-            probs = [x if x != self._index else x*self.categorical_stability_scaler for x in probs]
-            probs = [z/sum(probs) for z in probs]
-            self._p = None
+            self._p = [x if x != self._index else x*self.categorical_stability_scaler for x in probs]
 
             if feature_type == NUMERIC:
                 mean = rng.uniform(0.1)
@@ -186,7 +184,7 @@ class MarkovChain(Generator):
                 self.sample = self.continuous_sample_fn()
             else:  # binary/categorical variable
                 self.sample = self.discrete_sample_fn()
-            self._p /= self._p.sum()  # normalize transition probabilities
+            self._p /= sum(self._p)  # normalize transition probabilities
 
         def transition(self):
             """Transition to next state"""
