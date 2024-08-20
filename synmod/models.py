@@ -78,7 +78,11 @@ class Regressor(Model):
             Noise term(s) to add to polynomial
         """
         noise = kwargs.get("noise", 0)  # TODO: this is the noise multiplier
-        return self._polynomial_fn(self._aggregator.operate(X).transpose(), noise)
+        outs = self._aggregator.operate(X).transpose(1,0,2)
+        results = np.zeros((outs.shape[1], outs.shape[2]))
+        for timepoint in range(outs.shape[-1]):
+            results[:, timepoint] = self._polynomial_fn(outs[:,:,timepoint], noise)
+        return results
 
 
 def get_model(args, features, instances):

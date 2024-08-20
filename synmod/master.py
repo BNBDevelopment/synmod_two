@@ -2,6 +2,8 @@
 
 
 import argparse
+import copy
+import math
 from distutils.util import strtobool
 import functools
 import json
@@ -82,6 +84,8 @@ def main(strargs=None):
                           help="The size of the interaction window (how many of the previous time points for feature A can influence the value of feature B)",
                           type=int)
     temporal.add_argument("-categorical_stability_scaler", help="Scaling factor for how much more likely a categorical variable is to keep its value over time point", type=float)
+    temporal.add_argument("-min_seq_length", help="Scaling factor for how much more likely a categorical variable is to keep its value over time point", type=float)
+
 
     args = parser.parse_args(args=strargs)
     if args.synthesis_type == constants.TEMPORAL:
@@ -104,15 +108,72 @@ def configure(args):
         args.window_independent = args.rng.choice([True, False])
 
 
+def draw_visualize(features, instances, test_results, item_id=0, seq_lengths=None):
+    import matplotlib.pyplot as plt
+    import math
+    n_plots_vert = 5 + 1
+    n_plots_horiz = math.ceil(len(features) / n_plots_vert)
+    figure, axis = plt.subplots(n_plots_vert, n_plots_horiz, figsize=(10, 10), layout='constrained')
+
+
+    seq_len = instances.shape[-1]
+    time_tick_lbls = [str(x) if x%5 == 0 else "" for x in range(seq_len)]
+
+    for i in range(len(features)):
+        feature_name = f"Feature {i}"
+        if n_plots_horiz > 1:
+            working_subplot = axis[i // n_plots_horiz, i % n_plots_horiz]
+        else:
+            working_subplot = axis[i // n_plots_horiz]
+        working_subplot.set_title(f"{feature_name}")
+        working_subplot.set_xticks(list(range(0, len(time_tick_lbls))), labels=time_tick_lbls)
+
+        values = instances[item_id, i]
+        working_subplot.plot(list(range(0, len(time_tick_lbls))), values, color='b',label='Instance')
+        working_subplot.set_ylabel("Value", color='b')
+        working_subplot.tick_params(axis='y', colors='b')
+
+        # overlay_plot = working_subplot.twinx()
+        # overlay_plot.bar(list(range(0, len(time_tick_lbls))), explan_res[:, i].flatten(), color='r', label='Predictions')
+        # overlay_plot.set_ylabel("Predictions", color='r')
+        # overlay_plot.tick_params(axis='y', colors='r')
+        #
+        # working_subplot.set_zorder(overlay_plot.get_zorder() + 1)
+        # working_subplot.patch.set_visible(False)
+
+    i = len(features)
+    if n_plots_horiz > 1:
+        working_subplot = axis[i // n_plots_horiz, i % n_plots_horiz]
+    else:
+        working_subplot = axis[i // n_plots_horiz]
+    working_subplot.set_title(f"Predictions")
+    actual_len = seq_lengths[item_id]
+    actual_labels = time_tick_lbls[:actual_len]
+    working_subplot.set_xticks(list(range(0, len(actual_labels))), labels=actual_labels)
+
+    results = test_results[item_id]
+    working_subplot.bar(list(range(0, len(actual_labels))), results[:actual_len], color='r', label='Predictions')
+    working_subplot.set_ylabel("Predictions", color='r')
+    working_subplot.tick_params(axis='y', colors='r')
+
+    figure.savefig(f"Example_Instance{item_id}.png")
+    plt.close()
+
 def pipeline(args):
     """Pipeline"""
     configure(args)
     args.logger.info(f"Begin generating sequence data with args: {args}")
     features = generate_features(args)
-    instances = generate_instances(args, features)
+    instances, seq_lengths = generate_instances(args, features)
     model = M.get_model(args, features, instances)
     ground_truth_estimation(args, features, instances, model)
     write_outputs(args, features, instances, model)
+
+    model_instances = copy.deepcopy(instances)
+    model_instances = np.nan_to_num(model_instances, 0)
+    test_results = model.predict(model_instances)
+    draw_visualize(features, instances, test_results, item_id=0, seq_lengths=seq_lengths)
+
     return features, instances, model
 
 
@@ -192,12 +253,15 @@ def sample_with_dependency(args, features, cur_seq_len, **kwargs):
 
 def generate_instances(args, features):
     """Generate instances"""
+    seq_lengths = None
     if args.synthesis_type == constants.TABULAR:
         instances = np.empty((args.num_instances, args.num_features))
         for sid in range(args.num_instances):
             instances[sid] = [feature.sample() for feature in features]
     else:
-        seq_lengths = np.random.geometric(p=(1/args.expected_sequence_length), size=args.num_instances)
+        seq_lengths = np.random.geometric(p=(1/args.expected_sequence_length), size=args.num_instances*100)
+        seq_lengths = seq_lengths[np.where(seq_lengths > args.min_seq_length)][:args.num_instances]
+        assert seq_lengths.shape[0] == args.num_instances, f"Failure! Not enough instances of sequence length {args.min_seq_length} generated! Please retry."
         max_len = np.max(seq_lengths).item()
         instances = []
         for instance_id in range(args.num_instances):
@@ -209,7 +273,7 @@ def generate_instances(args, features):
                 instance = sample_with_dependency(args, features, cur_seq_len)
             instance = np.pad(instance, pad_width=((0,0),(0,max_len-instance.shape[-1])), constant_values=np.nan)
             instances.append(instance)
-    return np.stack(instances)
+    return np.stack(instances), seq_lengths
 
 
 def generate_labels(model, instances):

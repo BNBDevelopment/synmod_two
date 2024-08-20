@@ -112,8 +112,9 @@ class TemporalFeature(Feature):
         if sequence_length == 1:
             return (1, 1)  # tabular features
         # TODO: allow soft-edged windows (smooth decay of influence of feature values outside window)
-        left = -self._rng.choice(range(sequence_length))
-        right = self._rng.choice(range(left, 0))
+        left = -self._rng.choice(range(1, int(sequence_length)//2))
+        #right = self._rng.choice(range(left, 1))
+        right = 0
         return (left, right)
 
 

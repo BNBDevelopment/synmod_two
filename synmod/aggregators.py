@@ -38,11 +38,22 @@ class Aggregator():
         """Apply feature-wise operations to sequence data"""
         # TODO: when perturbing a feature, other values do not need to be recomputed.
         # But this seems unavoidable under the current design (analysis only calls model.predict, doesn't provide other info)
-        num_instances, num_features, _ = sequences.shape  # sequences: instances X features X timesteps
-        matrix = np.zeros((num_instances, num_features))
+        num_instances, num_features, num_timepoints = sequences.shape  # sequences: instances X features X timesteps
+        #matrix = np.zeros((num_instances, num_features))
+        matrix = np.zeros_like(sequences)
         for fidx in range(num_features):
             (left, right) = self._windows[fidx]
-            matrix[:, fidx] = self.operate_on_feature(fidx, sequences[:, fidx, left: right + 1])
+        #     matrix[:, fidx] = self.operate_on_feature(fidx, sequences[:, fidx, left: right + 1])
+        # return matrix
+
+            # preds = np.zeros_like(instances)
+            for time in range(num_timepoints):
+                if time + right >= 0:
+                    w_start = 0
+                    w_end = max(time + right, 0)
+                    if time + left >= 0 and time + right >= 0:
+                        w_start = max(time + left, 0)
+                    matrix[:, fidx, time] = self.operate_on_feature(fidx, sequences[:, fidx, w_start: w_end + 1])
         return matrix
 
 
