@@ -8,6 +8,7 @@ DISCRETE = "discrete"
 NUMERIC = "numeric"
 BINARY = "binary"
 CATEGORICAL = "categorical"
+CONSTANT = "constant"
 VARIANCE_TEST_COUNT = 100  # number of instances to test a feature's variance with
 
 # Models

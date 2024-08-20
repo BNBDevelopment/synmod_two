@@ -16,6 +16,7 @@ import numpy as np
 from synmod import constants
 from synmod import features as F
 from synmod import models as M
+from synmod.features import ConstantFeature
 from synmod.utils import get_logger, JSONEncoderPlus
 
 
@@ -53,7 +54,7 @@ def main(strargs=None):
     common.add_argument("-write_outputs", help="flag to enable writing outputs (alternative to using python API)",
                         type=strtobool)
     common.add_argument("-feature_type_distribution", help="option to specify distribution of binary/categorical/numeric"
-                        "features types", nargs=3, type=float, default=[0.25, 0.25, 0.50])
+                        "features types", nargs=4, type=float, default=[0.225, 0.225, 0.45, 0.1])
     # Temporal synthesis arguments
     temporal = parser.add_argument_group("Temporal synthesis parameters")
     temporal.add_argument("-expected_sequence_length", help="Expected length of regularly sampled sequence",
@@ -242,11 +243,16 @@ def sample_with_dependency(args, features, cur_seq_len, **kwargs):
 
     for feature_id, feature in enumerate(features):
         cur_state = None
-        for timepoint in range(cur_seq_len):
-
-            mask = np.random.choice([0, 1], size=1, p=[1 - features[feature_id].observation_probability, features[feature_id].observation_probability])
-            f_t_val, cur_state = feature.sample_single_MC_timepoint(args, cur_state, timepoint, prev_time_feat_vals, feature_id, feature.dependencies, **kwargs)
-            prev_time_feat_vals[feature_id, timepoint] = f_t_val if mask.item() == 1 else np.nan
+        if isinstance(feature, ConstantFeature):
+            mask = np.random.choice([np.nan, 1], size=cur_seq_len, p=[1 - features[feature_id].observation_probability, features[feature_id].observation_probability])
+            f_t_val, cur_state = feature.sample_single_MC_timepoint(args, cur_state, 0, prev_time_feat_vals, feature_id, feature.dependencies, **kwargs)
+            prev_time_feat_vals[feature_id, :] = f_t_val
+            prev_time_feat_vals[feature_id, :] = prev_time_feat_vals[feature_id, :] * mask
+        else:
+            for timepoint in range(cur_seq_len):
+                mask = np.random.choice([0, 1], size=1, p=[1 - features[feature_id].observation_probability, features[feature_id].observation_probability])
+                f_t_val, cur_state = feature.sample_single_MC_timepoint(args, cur_state, timepoint, prev_time_feat_vals, feature_id, feature.dependencies, **kwargs)
+                prev_time_feat_vals[feature_id, timepoint] = f_t_val if mask.item() == 1 else np.nan
 
     return prev_time_feat_vals
 

@@ -7,7 +7,7 @@ import numpy as np
 import graphviz
 from scipy.stats import bernoulli
 
-from synmod.constants import NUMERIC
+from synmod.constants import NUMERIC, CONSTANT
 
 IN_WINDOW = "in-window"
 OUT_WINDOW = "out-window"
@@ -166,7 +166,7 @@ class MarkovChain(Generator):
             probs = rng.uniform(size=n_states)
             self._p = [x if x != self._index else x*self.categorical_stability_scaler for x in probs]
 
-            if feature_type == NUMERIC:
+            if feature_type == NUMERIC or feature_type == CONSTANT:
                 mean = rng.uniform(0.1)
                 sd = rng.uniform(0.1) * 0.05
                 if self._chain._trends:
@@ -212,25 +212,30 @@ class MarkovChain(Generator):
 
     def sample(self, sequence_length, **kwargs):
         cur_state = self._rng.choice(self._out_window_states)  # initial state
-        sequence = np.empty(sequence_length)
         value = self._init_value  # TODO: what if value is re-initialized for every sequence sampled? (trends)
         left, right = self._window
 
-        for timestep in range(sequence_length):
-            if not self._window_independent:
-                # Reset initial state in/out of window
-                if timestep == left:
-                    cur_state = self._rng.choice(self._in_window_states)
-                elif timestep == right + 1:
-                    cur_state = self._rng.choice(self._out_window_states)
-            # Get value from state
-            if self._trends:
-                value += cur_state.sample()
-            else:
-                value = cur_state.sample()
-            sequence[timestep] = value
-            # Set next state
-            cur_state = cur_state.transition()
+        if self._feature_type == CONSTANT:
+            value = cur_state.sample()
+            sequence = np.repeat(value, repeats=sequence_length)
+            cur_state.transition()
+        else:
+            sequence = np.empty(sequence_length)
+            for timestep in range(sequence_length):
+                if not self._window_independent:
+                    # Reset initial state in/out of window
+                    if timestep == left:
+                        cur_state = self._rng.choice(self._in_window_states)
+                    elif timestep == right + 1:
+                        cur_state = self._rng.choice(self._out_window_states)
+                # Get value from state
+                if self._trends:
+                    value += cur_state.sample()
+                else:
+                    value = cur_state.sample()
+                sequence[timestep] = value
+                # Set next state
+                cur_state = cur_state.transition()
 
         #Do masking of sequence
         if 'mask' in kwargs.keys():
