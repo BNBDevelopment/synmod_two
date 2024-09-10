@@ -123,8 +123,9 @@ class BinaryFeature(TemporalFeature):
     def __init__(self, name, seed_seq, sequence_length, aggregation_fn_cls, **kwargs):
         super().__init__(name, seed_seq, sequence_length, aggregation_fn_cls)
         generator_class = self._rng.choice([MarkovChain])
-        n_thresholds = 2
-        kwargs["thresholds"] = self._rng.uniform(low=0, high=1.0, size=n_thresholds - 1)
+        # n_thresholds = 2
+        # kwargs["thresholds"] = self._rng.uniform(low=0, high=1.0, size=n_thresholds - 1)
+        kwargs["n_categories"] = 2
 
         self.generator = generator_class(self._rng, BINARY, self.window, **kwargs)
 
@@ -134,8 +135,9 @@ class CategoricalFeature(TemporalFeature):
     def __init__(self, name, seed_seq, sequence_length, aggregation_fn_cls, **kwargs):
         super().__init__(name, seed_seq, sequence_length, aggregation_fn_cls)
         generator_class = self._rng.choice([MarkovChain])
-        n_thresholds = kwargs.get("n_states", self._rng.integers(3, 5, endpoint=True))
-        kwargs["thresholds"] = np.sort(self._rng.uniform(low=0, high=1.0, size=n_thresholds - 1))
+        # n_thresholds =
+        # kwargs["thresholds"] = np.sort(self._rng.uniform(low=0, high=1.0, size=n_thresholds - 1))
+        kwargs["n_categories"] = kwargs.get("n_states", self._rng.integers(3, 5, endpoint=True))
         self.generator = generator_class(self._rng, CATEGORICAL, self.window, **kwargs)
 
 

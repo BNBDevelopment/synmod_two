@@ -147,7 +147,7 @@ class MarkovChain(Generator):
             self.sample = None  # Function to sample from state distribution
             if self._chain._feature_type == NUMERIC:
                 self._summary_stats = SummaryStats(None, None)
-            self. categorical_stability_scaler = kwargs['categorical_stability_scaler']
+            self.categorical_stability_scaler = kwargs['categorical_stability_scaler']
             self.variance_scaler = kwargs.get("variance_scaler", 1)
 
         def continuous_sample_fn(self):
@@ -155,12 +155,12 @@ class MarkovChain(Generator):
 
         def discrete_sample_fn(self):
             def actualized_discrete_sampler():
-                val = self._chain._rng.normal(self.mean, self.sd*4)
-                which_lower = np.argwhere(self._chain.thresholds < val)
-                which_higher = np.argwhere(self._chain.thresholds > val)
+                val = self._chain._rng.normal(self.mean, self.sd)
+                which_lower = np.argwhere(self.threshold <= val)
+                which_higher = np.argwhere(self.threshold > val)
 
                 if which_lower.shape[0] == 0:
-                    return self._chain.thresholds.shape[0]
+                    return self.threshold.shape[0]
                 if which_higher.shape[0] == 0:
                     return 0
 
@@ -209,13 +209,11 @@ class MarkovChain(Generator):
     def __init__(self, rng, feature_type, window, **kwargs):
         super().__init__(rng, feature_type, window)
         n_states = 1
-        self.thresholds = kwargs.get("thresholds", self._rng.integers(2, 5, endpoint=True))
+        self.n_categories = kwargs.get("n_categories", self._rng.integers(3, 5, endpoint=True))
         self._window_independent = kwargs.get("window_independent", False)  # Sampled state independent of window location
 
         # If trends enabled, sampled values increase/decrease/stay constant according to trends corresponding to each state:
         self._trends = self._rng.choice([True, False]) if self._feature_type == NUMERIC else False
-        if self._trends and not self._window_independent:
-            n_states = min(n_states, 4)  # Separate chains in/out of window, so avoid too many trends within window
         self._init_value = self._rng.uniform(-1, 1)  # Initial value of Markov chain, used for trends
 
         # Select states inside and outside window
@@ -228,6 +226,14 @@ class MarkovChain(Generator):
         states = self._in_window_states if self._window_independent else self._in_window_states + self._out_window_states
         for state in states:
             state.gen_distributions()
+            if feature_type == 'binary':
+                bin_threshold = state._chain._rng.normal(state.mean, state.sd*(2/state.categorical_stability_scaler)) #2 is default value here
+                state.threshold = np.array([-np.inf] + [bin_threshold] + [np.inf])
+            else:
+                base_threshold = [(x*state.sd*state.categorical_stability_scaler) for x in range(0, self.n_categories-1)]
+                threshold_divider_mean = np.mean(base_threshold) #np.mean([y[0] for y in base_threshold]) #not a perfectly clean divide, but keeps things a bit more balanced
+                state.threshold = [state.mean+(y-threshold_divider_mean) for y in base_threshold]
+                state.threshold = np.array([-np.inf] + state.threshold + [np.inf])
 
     def sample(self, sequence_length, **kwargs):
         cur_state = self._rng.choice(self._out_window_states)  # initial state

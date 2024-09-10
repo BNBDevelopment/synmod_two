@@ -86,7 +86,8 @@ def main(strargs=None):
                           type=int)
     temporal.add_argument("-categorical_stability_scaler",
                           help="Scaling factor for how much more likely a categorical variable is to keep its value over time point",
-                          type=float)
+                          type=float,
+                          default=2)
     temporal.add_argument("-min_seq_length",
                           help="Scaling factor for how much more likely a categorical variable is to keep its value over time point",
                           type=float)
@@ -128,12 +129,14 @@ def draw_visualize(features, instances, test_results, item_id=0, seq_lengths=Non
     time_tick_lbls = [str(x) if x%5 == 0 else "" for x in range(seq_len)]
 
     for i in range(len(features)):
-        feature_name = f"Feature {i}"
+        f_name = features[i].name
+        f_type = features[i].generator._feature_type
+        top_descriptor = f"Feature {f_name} ({f_type})"
         if n_plots_horiz > 1:
             working_subplot = axis[i // n_plots_horiz, i % n_plots_horiz]
         else:
             working_subplot = axis[i // n_plots_horiz]
-        working_subplot.set_title(f"{feature_name}")
+        working_subplot.set_title(f"{top_descriptor}")
         working_subplot.set_xticks(list(range(0, len(time_tick_lbls))), labels=time_tick_lbls)
 
         values = instances[item_id, i]
