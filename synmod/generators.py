@@ -148,6 +148,7 @@ class MarkovChain(Generator):
             if self._chain._feature_type == NUMERIC:
                 self._summary_stats = SummaryStats(None, None)
             self. categorical_stability_scaler = kwargs['categorical_stability_scaler']
+            self.variance_scaler = kwargs.get("variance_scaler", 1)
 
         def continuous_sample_fn(self):
             return lambda: self._chain._rng.normal(self.mean, self.sd)
@@ -180,7 +181,7 @@ class MarkovChain(Generator):
             self._p = [x if x != self._index else x*self.categorical_stability_scaler for x in probs]
 
             mean = rng.uniform(0.1)
-            sd = rng.uniform(0.1) * 0.05
+            sd = (rng.uniform(0.1) * 0.05) * self.variance_scaler
             if self._chain._trends:
                 if self._index == 0:
                     pass  # Increase

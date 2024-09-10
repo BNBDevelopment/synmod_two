@@ -164,7 +164,7 @@ class NumericFeature(TemporalFeature):
         self.generator = generator_class(self._rng, NUMERIC, self.window, **kwargs)
 
 
-def get_feature(args, name):
+def get_feature(args, name, variance_val):
     """Return randomly selected feature"""
     seed_seq = args.rng.bit_generator._seed_seq.spawn(1)[0]  # pylint: disable = protected-access
     if args.synthesis_type == TABULAR:
@@ -182,6 +182,7 @@ def get_feature(args, name):
             if feature_class == CategoricalFeature:
                 kwargs["n_states"] = args.rng.integers(4, 5, endpoint=True)
         kwargs['categorical_stability_scaler'] = args.categorical_stability_scaler
+        kwargs['variance_scaler'] = variance_val
         feature = feature_class(name, seed_seq, args.expected_sequence_length, aggregation_fn_cls, **kwargs)
         args.logger.info(f"Generating feature class {feature_class.__name__} with window {feature.window} and"
                          f" aggregation_fn {aggregation_fn_cls.__name__}")

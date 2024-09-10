@@ -84,9 +84,16 @@ def main(strargs=None):
     temporal.add_argument("-interact_window_size",
                           help="The size of the interaction window (how many of the previous time points for feature A can influence the value of feature B)",
                           type=int)
-    temporal.add_argument("-categorical_stability_scaler", help="Scaling factor for how much more likely a categorical variable is to keep its value over time point", type=float)
-    temporal.add_argument("-min_seq_length", help="Scaling factor for how much more likely a categorical variable is to keep its value over time point", type=float)
-
+    temporal.add_argument("-categorical_stability_scaler",
+                          help="Scaling factor for how much more likely a categorical variable is to keep its value over time point",
+                          type=float)
+    temporal.add_argument("-min_seq_length",
+                          help="Scaling factor for how much more likely a categorical variable is to keep its value over time point",
+                          type=float)
+    temporal.add_argument("-variance_scaler",
+                          help="Scaler applied to the variance of the gaussian from which values are sampled. Either a float applied to all values, or a list of values (one per feature)",
+                          type=str,
+                          default="1")
 
     args = parser.parse_args(args=strargs)
     if args.synthesis_type == constants.TEMPORAL:
@@ -178,6 +185,25 @@ def pipeline(args):
     return features, instances, model
 
 
+def argstr_to_list(value, name, args):
+    try:
+        dat = value.split(",")
+        if len(dat) == args.num_features:
+            dat = np.array([float(x) for x in dat])
+        elif len(dat) == 1:
+            dat = np.array([float(value) for x in range(args.num_features)])
+        else:
+            raise IndexError(
+                f"Argument '{name}' is not valid. Number of probabilities is {len(dat)} and should be either 1 or {args.num_features}.")
+    except Exception as ex:
+        if isinstance(ex, IndexError):
+            raise ex
+        else:
+            raise Exception(f"Argument '{name}' is not numeric or incorrect number of values.")
+
+    return dat
+
+
 def generate_features(args):
     """Generate features"""
     def check_feature_variance(args, feature):
@@ -191,23 +217,15 @@ def generate_features(args):
             aggregated = feature.predict(instances, feature.window)
         return np.all(np.var(aggregated, axis=-1) > 1e-10)
 
-    #Defining observation probabilities
-    try:
-        obs_prob = args.observation_probability.split(",")
-        if len(obs_prob) == args.num_features:
-            obs_prob = np.array([float(x) for x in obs_prob])
-        elif len(obs_prob) == 1:
-            obs_prob = np.array([float(args.observation_probability) for x in range(args.num_features)])
-        else:
-            raise Exception(f"Argument 'observation_probability' is not valid. Number of probabilities is {len(obs_prob)} and should be either 1 or {args.num_features}.")
-    except:
-        raise Exception(f"Argument 'observation_probability' is not numeric.")
+    obs_prob = argstr_to_list(args.observation_probability, 'observation_probability', args)
+    variance_scaler = argstr_to_list(args.variance_scaler, 'variance_scaler', args)
 
     # TODO: allow across-feature interactions
     features = [None] * args.num_features
     fid = 0
     while fid < args.num_features:
-        feature = F.get_feature(args, str(fid))
+        variance_scale_val = variance_scaler[fid]
+        feature = F.get_feature(args, str(fid), variance_scale_val)
         feature.observation_probability = obs_prob[fid]
 
         possible_feature_to_depend_on = np.concatenate((np.random.choice([x for x in range(args.num_features) if x != fid], args.max_interactions_per_feature), [None]))
