@@ -153,7 +153,20 @@ class MarkovChain(Generator):
             return lambda: self._chain._rng.normal(self.mean, self.sd)
 
         def discrete_sample_fn(self):
-            return lambda: self._index
+            def actualized_discrete_sampler():
+                val = self._chain._rng.normal(self.mean, self.sd*4)
+                which_lower = np.argwhere(self._chain.thresholds < val)
+                which_higher = np.argwhere(self._chain.thresholds > val)
+
+                if which_lower.shape[0] == 0:
+                    return self._chain.thresholds.shape[0]
+                if which_higher.shape[0] == 0:
+                    return 0
+
+                for i in which_lower:
+                    if i+1 in which_higher:
+                        return i
+            return lambda: actualized_discrete_sampler()
 
         def gen_distributions(self):
             """Generate state transition and sampling distributions"""
@@ -166,21 +179,22 @@ class MarkovChain(Generator):
             probs = rng.uniform(size=n_states)
             self._p = [x if x != self._index else x*self.categorical_stability_scaler for x in probs]
 
+            mean = rng.uniform(0.1)
+            sd = rng.uniform(0.1) * 0.05
+            if self._chain._trends:
+                if self._index == 0:
+                    pass  # Increase
+                elif self._index == 1:
+                    mean = -mean  # Decrease
+                elif self._index == 2:
+                    mean = 0  # Stay constant
+                else:
+                    mean = rng.uniform(-1, 1)  # Random
+            self.mean = mean
+            self.sd = sd
+            self._summary_stats = SummaryStats(mean, sd)
+
             if feature_type == NUMERIC or feature_type == CONSTANT:
-                mean = rng.uniform(0.1)
-                sd = rng.uniform(0.1) * 0.05
-                if self._chain._trends:
-                    if self._index == 0:
-                        pass  # Increase
-                    elif self._index == 1:
-                        mean = -mean  # Decrease
-                    elif self._index == 2:
-                        mean = 0  # Stay constant
-                    else:
-                        mean = rng.uniform(-1, 1)  # Random
-                self.mean = mean
-                self.sd = sd
-                self._summary_stats = SummaryStats(mean, sd)
                 self.sample = self.continuous_sample_fn()
             else:  # binary/categorical variable
                 self.sample = self.discrete_sample_fn()
@@ -193,19 +207,23 @@ class MarkovChain(Generator):
 
     def __init__(self, rng, feature_type, window, **kwargs):
         super().__init__(rng, feature_type, window)
-        n_states = kwargs.get("n_states", self._rng.integers(2, 5, endpoint=True))
+        n_states = 1
+        self.thresholds = kwargs.get("thresholds", self._rng.integers(2, 5, endpoint=True))
         self._window_independent = kwargs.get("window_independent", False)  # Sampled state independent of window location
+
         # If trends enabled, sampled values increase/decrease/stay constant according to trends corresponding to each state:
         self._trends = self._rng.choice([True, False]) if self._feature_type == NUMERIC else False
         if self._trends and not self._window_independent:
             n_states = min(n_states, 4)  # Separate chains in/out of window, so avoid too many trends within window
         self._init_value = self._rng.uniform(-1, 1)  # Initial value of Markov chain, used for trends
+
         # Select states inside and outside window
         self._in_window_states = [self.State(self, index, IN_WINDOW, **kwargs) for index in range(n_states)]
         self._out_window_states = self._in_window_states
         if not self._window_independent:
             # Create separate chain in/out of window
             self._out_window_states = [self.State(self, index, OUT_WINDOW, **kwargs) for index in range(n_states)]
+
         states = self._in_window_states if self._window_independent else self._in_window_states + self._out_window_states
         for state in states:
             state.gen_distributions()

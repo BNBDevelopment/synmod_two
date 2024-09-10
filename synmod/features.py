@@ -123,8 +123,9 @@ class BinaryFeature(TemporalFeature):
     def __init__(self, name, seed_seq, sequence_length, aggregation_fn_cls, **kwargs):
         super().__init__(name, seed_seq, sequence_length, aggregation_fn_cls)
         generator_class = self._rng.choice([MarkovChain])
-        kwargs["n_states"] = 2
-        self.n_states = 2
+        n_thresholds = 2
+        kwargs["thresholds"] = self._rng.uniform(low=0, high=1.0, size=n_thresholds - 1)
+
         self.generator = generator_class(self._rng, BINARY, self.window, **kwargs)
 
 
@@ -133,9 +134,10 @@ class CategoricalFeature(TemporalFeature):
     def __init__(self, name, seed_seq, sequence_length, aggregation_fn_cls, **kwargs):
         super().__init__(name, seed_seq, sequence_length, aggregation_fn_cls)
         generator_class = self._rng.choice([MarkovChain])
-        kwargs["n_states"] = kwargs.get("n_states", self._rng.integers(3, 5, endpoint=True))
-        self.n_states = kwargs.get("n_states", self._rng.integers(3, 5, endpoint=True))
+        n_thresholds = kwargs.get("n_states", self._rng.integers(3, 5, endpoint=True))
+        kwargs["thresholds"] = np.sort(self._rng.uniform(low=0, high=1.0, size=n_thresholds - 1))
         self.generator = generator_class(self._rng, CATEGORICAL, self.window, **kwargs)
+
 
 
 class ConstantFeature(TemporalFeature):
@@ -143,7 +145,6 @@ class ConstantFeature(TemporalFeature):
     def __init__(self, name, seed_seq, sequence_length, aggregation_fn_cls, **kwargs):
         super().__init__(name, seed_seq, sequence_length, aggregation_fn_cls)
         generator_class = self._rng.choice([MarkovChain])
-        kwargs["n_states"] = 1
         self.generator = generator_class(self._rng, CONSTANT, self.window, **kwargs)
         self.constant_value = None
 
@@ -160,7 +161,6 @@ class NumericFeature(TemporalFeature):
     def __init__(self, name, seed_seq, sequence_length, aggregation_fn_cls, **kwargs):
         super().__init__(name, seed_seq, sequence_length, aggregation_fn_cls)
         generator_class = self._rng.choice([MarkovChain])
-        kwargs["n_states"] = 1
         self.generator = generator_class(self._rng, NUMERIC, self.window, **kwargs)
 
 
