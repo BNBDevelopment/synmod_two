@@ -95,6 +95,18 @@ def main(strargs=None):
                           help="Scaler applied to the variance of the gaussian from which values are sampled. Either a float applied to all values, or a list of values (one per feature)",
                           type=str,
                           default="1")
+    temporal.add_argument("-trend_start_scaler",
+                          help="Scaling factor for how likely a trend is to start in a trend-enabled variable at any given tme point.",
+                          type=float,
+                          default=1)
+    temporal.add_argument("-trend_stop_scaler",
+                          help="Scaling factor for how likely a trend is to stop in a trend-enabled variable that has started trending.",
+                          type=float,
+                          default=1)
+    temporal.add_argument("-max_dependency",
+                          help="Specifies a maximum for the strength of dependencies).",
+                          type=float,
+                          default=0.1)
 
     args = parser.parse_args(args=strargs)
     if args.synthesis_type == constants.TEMPORAL:
@@ -243,7 +255,7 @@ def generate_features(args):
 
         dependencies = []
         for d in f_depend_ids:
-            d_scale_factor = np.random.uniform(-1, 1)
+            d_scale_factor = np.random.uniform(-args.max_dependency, args.max_dependency)
             window_start = np.random.choice(window_possible, size=1)
             window_end = min(0, window_start + args.interact_window_size)
             dependencies.append((d, d_scale_factor, window_start, window_end, np.mean))
@@ -261,7 +273,7 @@ def generate_features(args):
 def sample_with_dependency(args, features, cur_seq_len, **kwargs):
     prev_time_feat_vals = np.zeros((len(features), cur_seq_len))
 
-
+    from synmod.features import NumericFeature
     for feature_id, feature in enumerate(features):
         cur_state = None
         if isinstance(feature, ConstantFeature):

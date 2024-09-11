@@ -185,6 +185,8 @@ def get_feature(args, name, variance_val):
                 kwargs["n_states"] = args.rng.integers(4, 5, endpoint=True)
         kwargs['categorical_stability_scaler'] = args.categorical_stability_scaler
         kwargs['variance_scaler'] = variance_val
+        kwargs['trend_start_scaler'] = args.trend_start_scaler
+        kwargs['trend_stop_scaler'] = args.trend_stop_scaler
         feature = feature_class(name, seed_seq, args.expected_sequence_length, aggregation_fn_cls, **kwargs)
         args.logger.info(f"Generating feature class {feature_class.__name__} with window {feature.window} and"
                          f" aggregation_fn {aggregation_fn_cls.__name__}")
